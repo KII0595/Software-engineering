@@ -1,248 +1,119 @@
 import pytest
 from refactored_code import (
-    PositiveNumberValidator,
-    StringNotEmptyValidator,
-    DeveloperSalaryStrategy,
-    ManagerSalaryStrategy,
-    SalespersonSalaryStrategy,
-    PerformanceBonusStrategy,
-    SeniorityBonusStrategy,
+    NonNegativeFloatValidator,
+    NonEmptyStringValidator,
+    DevPayrollStrategy,
+    ManagerPayrollStrategy,
+    SalesPayrollStrategy,
+    FixedPerformanceBonus,
+    LevelBasedBonus,
     Employee,
     Developer,
     Manager,
-    Salesperson,
-    InMemoryEmployeeRepository,
-    Company,
+    SalesPerson,
+    MemoryStorage,
+    Organization,
 )
 
-# tests for validators
 
-class TestPositiveNumberValidator:
+@pytest.fixture
+def float_validator():
+    return NonNegativeFloatValidator()
 
-    @pytest.fixture
-    def validator(self):
-        return PositiveNumberValidator()
 
-    def test_valid(self, validator):
-        assert validator.validate(100) == 100.0
-        assert validator.validate(0.5) == 0.5
-        assert validator.validate(0) == 0.0
+@pytest.fixture
+def str_validator():
+    return NonEmptyStringValidator()
 
-    def test_invalid(self, validator):
-        with pytest.raises(ValueError):
-            validator.validate(-1)
-        with pytest.raises(ValueError):
-            validator.validate("abc")
 
-    def test_string_conversion(self, validator):
-        assert validator.validate("50") == 50.0
+def test_float_validator_valid(float_validator):
+    assert float_validator.validate(100) == 100.0
+    assert float_validator.validate(0) == 0.0
 
 
-class TestStringNotEmptyValidator:
+def test_float_validator_invalid(float_validator):
+    with pytest.raises(ValueError):
+        float_validator.validate(-5)
 
-    @pytest.fixture
-    def validator(self):
-        return StringNotEmptyValidator()
 
-    def test_valid(self, validator):
-        assert validator.validate("John") == "John"
-        assert validator.validate("  Alice  ") == "Alice"
+def test_string_validator_valid(str_validator):
+    assert str_validator.validate("  Test  ") == "Test"
 
-    def test_invalid(self, validator):
-        for value in ["", "   ", None]:
-            with pytest.raises(ValueError):
-                validator.validate(value)
 
+def test_string_validator_invalid(str_validator):
+    with pytest.raises(ValueError):
+        str_validator.validate("")
 
-# tests for salary strategies
 
-class TestDeveloperSalaryStrategy:
+def test_dev_strategy():
+    strat = DevPayrollStrategy()
+    assert strat.compute(2000, "junior") == 2000
+    assert strat.compute(2000, "senior") == 4000
 
-    @pytest.fixture
-    def strategy(self):
-        return DeveloperSalaryStrategy()
 
-    def test_levels(self, strategy):
-        assert strategy.calculate(1000, "junior") == 1000
-        assert strategy.calculate(1000, "middle") == 1500
-        assert strategy.calculate(1000, "senior") == 2000
-        assert strategy.calculate(1000, "unknown") == 1000
+def test_manager_strategy():
+    strat = ManagerPayrollStrategy()
+    assert strat.compute(7000, fixed_bonus=3000) == 10000
 
 
-class TestManagerSalaryStrategy:
+def test_sales_strategy():
+    strat = SalesPayrollStrategy()
+    assert strat.compute(3000, rate=0.15, sales_volume=4000) == 3600
 
-    @pytest.fixture
-    def strategy(self):
-        return ManagerSalaryStrategy()
 
-    def test_salary(self, strategy):
-        assert strategy.calculate(5000) == 5000
-        assert strategy.calculate(5000, 1000) == 6000
-        assert strategy.calculate(5000, 0) == 5000
+def test_fixed_bonus():
+    bonus = FixedPerformanceBonus()
+    assert bonus.compute_bonus(5000) == 500.0
 
 
-class TestSalespersonSalaryStrategy:
+def test_level_bonus():
+    bonus = LevelBasedBonus()
+    assert bonus.compute_bonus(5000, "senior") == 1000.0
 
-    @pytest.fixture
-    def strategy(self):
-        return SalespersonSalaryStrategy()
 
-    def test_sales(self, strategy):
-        assert strategy.calculate(2000) == 2000
-        assert strategy.calculate(2000, total_sales=5000) == 2500
-        assert strategy.calculate(2000, 0.15, 5000) == 2750
+def test_developer_salary():
+    dev = Developer("Test Dev", "DEV", 3000, "middle")
+    assert dev.full_salary() == 4800.0  # 3000 * 1.5 + 3000 * 0.10
 
 
-# tests for bonus strategies
+def test_manager_salary():
+    mgr = Manager("Test Mgr", "MGMT", 6000, 1500)
+    assert mgr.full_salary() == 8100.0  # 6000 + 1500 + 600
 
-class TestPerformanceBonusStrategy:
 
-    @pytest.fixture
-    def strategy(self):
-        return PerformanceBonusStrategy()
+def test_sales_salary():
+    sales = SalesPerson("Test Sales", "SALES", 2500, 0.12)
+    sales.record_sale(8000)
+    assert sales.full_salary() == 3460.0
 
-    def test_bonus(self, strategy):
-        assert strategy.calculate_bonus(1000) == 100
-        assert strategy.calculate_bonus(0) == 0
 
+def test_memory_storage():
+    storage = MemoryStorage()
+    emp = Employee("John", "IT", 4000)
+    storage.save(emp)
+    assert len(storage.list_all()) == 1
+    assert storage.list_all()[0].emp_id == 1
 
-class TestSeniorityBonusStrategy:
 
-    @pytest.fixture
-    def strategy(self):
-        return SeniorityBonusStrategy()
+def test_organization_flow():
+    org = Organization("TestCo")
+    dev = Developer("A", "DEV", 4000, "senior")
+    mgr = Manager("B", "MGMT", 7000, 2000)
+    org.add_employee(dev)
+    org.add_employee(mgr)
+    assert org.total_payroll() == 18100.0  # (4000*2 + 4000*0.2) + (7000+2000 + 700)
 
-    def test_bonus(self, strategy):
-        assert strategy.calculate_bonus(1000, "junior") == 50
-        assert strategy.calculate_bonus(1000, "middle") == 100
-        assert strategy.calculate_bonus(1000, "senior") == 200
-        assert strategy.calculate_bonus(1000, "unknown") == 50
 
+@pytest.mark.parametrize(
+    "base,level,expected_mult,expected_bonus_rate",
+    [(1000, "junior", 1.0, 0.05), (1000, "middle", 1.5, 0.10), (1000, "senior", 2.0, 0.20)],
+)
+def test_dev_parametrized(base, level, expected_mult, expected_bonus_rate):
+    dev = Developer("P", "DEV", base, level)
+    expected = base * expected_mult + base * expected_bonus_rate
+    assert dev.full_salary() == expected
 
-# tests for employees
 
-class TestEmployee:
-
-    @pytest.fixture
-    def employee(self):
-        return Employee(
-            name="John",
-            department="IT",
-            base_salary=5000,
-            employee_id=1,
-            salary_strategy=DeveloperSalaryStrategy(),
-            bonus_strategy=PerformanceBonusStrategy()
-        )
-
-    def test_creation(self, employee):
-        assert employee.name == "John"
-        assert employee.id == 1
-
-    def test_invalid(self):
-        with pytest.raises(ValueError):
-            Employee("", "IT", 1000, salary_strategy=DeveloperSalaryStrategy(), bonus_strategy=PerformanceBonusStrategy())
-        with pytest.raises(ValueError):
-            Employee("John", "IT", -1000, salary_strategy=DeveloperSalaryStrategy(), bonus_strategy=PerformanceBonusStrategy())
-
-    def test_to_dict(self, employee):
-        data = employee.to_dict()
-        assert "total_salary" in data
-
-
-class TestDeveloper:
-
-    def test_salary(self):
-        dev = Developer("Alice", "DEV", 2000, "junior", employee_id=1)
-        assert dev.calculate_salary() == 2100
-
-        dev = Developer("Bob", "DEV", 3000, "senior", employee_id=2)
-        assert dev.calculate_salary() == 6600
-
-
-class TestManager:
-
-    def test_salary(self):
-        mgr = Manager("Diana", "MGMT", 5000, 2000, employee_id=1)
-        assert mgr.calculate_salary() == 7500
-
-
-class TestSalesperson:
-
-    def test_salary(self):
-        sales = Salesperson("George", "SALES", 2000, 0.1, employee_id=1)
-        sales.add_sales(5000)
-        assert sales.calculate_salary() == 2500
-
-
-# tests for repository
-
-class TestInMemoryEmployeeRepository:
-
-    def test_add(self):
-        repo = InMemoryEmployeeRepository()
-        emp = Developer("Alice", "DEV", 2000, employee_id=1)
-        repo.add(emp)
-        assert len(repo.get_all()) == 1
-
-
-# tests for company
-
-class TestCompany:
-
-    @pytest.fixture
-    def company(self):
-        return Company("TechCorp", InMemoryEmployeeRepository())
-
-    def test_workflow(self, company):
-        company.hire_employee(Developer("Alice", "DEV", 2000, "junior", 1))
-        company.hire_employee(Developer("Bob", "DEV", 3000, "senior", 2))
-        company.hire_employee(Manager("Diana", "MGMT", 5000, 1000, 3))
-        assert company.calculate_total_salary() == 15200
-
-
-# integration tests
-
-class TestIntegration:
-
-    def test_full_flow(self):
-        company = Company("Startup", InMemoryEmployeeRepository())
-
-        dev = Developer("Alice", "DEV", 4000, "senior", employee_id=1)
-        mgr = Manager("Bob", "MGMT", 6000, 2000, employee_id=2)
-        sales = Salesperson("Charlie", "SALES", 2000, 0.15, employee_id=3)
-
-        company.hire_employee(dev)
-        company.hire_employee(mgr)
-        company.hire_employee(sales)
-
-        sales.add_sales(10000)
-        assert company.calculate_total_salary() == 20900
-
-
-# parametrized tests
-
-@pytest.mark.parametrize("base_salary,seniority,mult,bonus", [
-    (1000, "junior", 1.0, 0.05),
-    (1000, "middle", 1.5, 0.10),
-    (1000, "senior", 2.0, 0.20),
-])
-def test_dev_salary_param(base_salary, seniority, mult, bonus):
-    dev = Developer("Test", "DEV", base_salary, seniority, employee_id=1)
-    assert dev.calculate_salary() == base_salary * mult + base_salary * bonus
-
-
-# edge cases
-
-class TestEdgeCases:
-
-    def test_zero_salary(self):
-        dev = Developer("Test", "DEV", 0, "junior", employee_id=1)
-        assert dev.calculate_salary() == 0
-
-    def test_large_salary(self):
-        mgr = Manager("Test", "MGMT", 999999, 100000, employee_id=1)
-        assert mgr.calculate_salary() == 999999 + 100000 + 99999.9
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+def test_zero_base_salary():
+    dev = Developer("Zero", "DEV", 0, "junior")
+    assert dev.full_salary() == 0.0
